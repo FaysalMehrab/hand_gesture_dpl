@@ -121,29 +121,6 @@
             border-color: rgba(100, 255, 100, 0.5);
         }
         
-        .troubleshooting {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            padding: 20px;
-            margin: 30px auto;
-            max-width: 600px;
-            text-align: left;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .troubleshooting h3 {
-            margin-top: 0;
-            color: #ffcc00;
-        }
-        
-        .troubleshooting ul {
-            padding-left: 20px;
-        }
-        
-        .troubleshooting li {
-            margin-bottom: 10px;
-        }
-        
         .debug-info {
             display: flex;
             justify-content: center;
@@ -207,7 +184,7 @@
         <!-- Gesture Emoji Guide END -->
 
         <div class="video-container">
-            <img id="videoFeed" src="{{ url_for('video_feed') }}">
+            <img id="videoFeed" width="640" height="480">
             <div class="status-container">
                 <div id="statusIndicator" class="status-indicator status-inactive">Camera: Loading...</div>
                 <div class="frame-counter">Frames: <span id="frameCounter">0</span></div>
@@ -241,7 +218,16 @@
         </footer>
     </div>
 
+    <!-- Hidden video and canvas for webcam capture -->
+    <video id="webcam" width="640" height="480" autoplay style="display:none;"></video>
+    <canvas id="canvas" width="640" height="480" style="display:none;"></canvas>
+
+    <!-- Socket.IO for WebSocket communication -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.js"></script>
     <script>
+        const webcam = document.getElementById('webcam');
+        const canvas = document.getElementById('canvas');
+        const videoFeed = document.getElementById('videoFeed');
         const statusElement = document.getElementById('statusIndicator');
         const frameCounterElement = document.getElementById('frameCounter');
         const debugStatus = document.getElementById('debugStatus');
@@ -250,51 +236,71 @@
         const currentFrameElement = document.getElementById('currentFrame');
         
         let frameCount = 0;
-        
-        // Update frame counter
-        document.getElementById('videoFeed').onload = function() {
+        let lastFrameTime = Date.now();
+        const socket = io.connect('http://' + document.domain + ':' + location.port);
+
+        // Access the webcam
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                webcam.srcObject = stream;
+                webcam.play();
+                statusElement.textContent = 'Camera: Active';
+                statusElement.className = 'status-indicator status-active';
+                debugStatus.textContent = 'Active';
+                debugStatus.style.color = '#0f0';
+                sendFrames();
+            })
+            .catch(err => {
+                console.error('Error accessing webcam:', err);
+                statusElement.textContent = 'Camera: Inactive';
+                statusElement.className = 'status-indicator status-inactive';
+                debugStatus.textContent = 'Inactive';
+                debugStatus.style.color = '#f00';
+            });
+
+        // Send frames to the server
+        function sendFrames() {
+            const context = canvas.getContext('2d');
+            context.drawImage(webcam, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8); // JPEG with 80% quality
+            socket.emit('frame', dataUrl);
+            setTimeout(sendFrames, 100); // ~10 FPS, adjust as needed
+        }
+
+        // Receive processed frames from the server
+        socket.on('processed_frame', data => {
+            videoFeed.src = 'data:image/jpeg;base64,' + data;
             frameCount++;
+            frameCounterElement.textContent = frameCount;
             currentFrameElement.textContent = frameCount;
-        };
-        
+            debugFrames.textContent = frameCount;
+            lastFrameTime = Date.now();
+            updateLastFrameTime();
+        });
+
+        // Update last frame time
+        function updateLastFrameTime() {
+            const now = Date.now();
+            const secondsAgo = Math.floor((now - lastFrameTime) / 1000);
+            debugLastFrame.textContent = `${secondsAgo} seconds ago`;
+            debugLastFrame.style.color = secondsAgo > 2 ? '#ff5555' : '#55ff55';
+        }
+
         // Check camera status periodically
         function checkCameraStatus() {
-            fetch('/camera_status')
-                .then(response => response.json())
-                .then(data => {
-                    const isActive = data.status === 'active';
-                    
-                    if (isActive) {
-                        statusElement.textContent = 'Camera: Active';
-                        statusElement.className = 'status-indicator status-active';
-                        debugStatus.textContent = 'Active';
-                        debugStatus.style.color = '#0f0';
-                    } else {
-                        statusElement.textContent = 'Camera: Inactive';
-                        statusElement.className = 'status-indicator status-inactive';
-                        debugStatus.textContent = 'Inactive';
-                        debugStatus.style.color = '#f00';
-                    }
-                    
-                    frameCounterElement.textContent = data.frame_counter || 0;
-                    debugFrames.textContent = data.frame_counter || 0;
-                    
-                    if (data.last_frame_time) {
-                        const lastFrameTime = new Date(data.last_frame_time * 1000);
-                        const now = new Date();
-                        const secondsAgo = Math.floor((now - lastFrameTime) / 1000);
-                        debugLastFrame.textContent = `${secondsAgo} seconds ago`;
-                        debugLastFrame.style.color = secondsAgo > 2 ? '#ff5555' : '#55ff55';
-                    }
-                })
-                .catch(error => {
-                    statusElement.textContent = 'Status: Error';
-                    statusElement.className = 'status-indicator status-inactive';
-                    debugStatus.textContent = 'Error';
-                    debugStatus.style.color = '#f00';
-                });
+            if (webcam.srcObject && webcam.srcObject.active) {
+                statusElement.textContent = 'Camera: Active';
+                statusElement.className = 'status-indicator status-active';
+                debugStatus.textContent = 'Active';
+                debugStatus.style.color = '#0f0';
+            } else {
+                statusElement.textContent = 'Camera: Inactive';
+                statusElement.className = 'status-indicator status-inactive';
+                debugStatus.textContent = 'Inactive';
+                debugStatus.style.color = '#f00';
+            }
         }
-        
+
         // Initial check
         checkCameraStatus();
         
@@ -304,7 +310,6 @@
         // Toggle fullscreen mode
         function toggleFullscreen() {
             const elem = document.getElementById('videoFeed');
-            
             if (!document.fullscreenElement) {
                 if (elem.requestFullscreen) {
                     elem.requestFullscreen();
@@ -326,49 +331,19 @@
         
         // Manually check camera connection
         function checkCamera() {
-            statusElement.textContent = 'Checking camera...';
-            fetch('/camera_status')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'active') {
-                        statusElement.textContent = 'Camera: Active';
-                        statusElement.className = 'status-indicator status-active';
-                        // Refresh video feed
-                        document.getElementById('videoFeed').src = "{{ url_for('video_feed') }}?" + new Date().getTime();
-                    } else {
-                        statusElement.textContent = 'Camera: Inactive';
-                        statusElement.className = 'status-indicator status-inactive';
-                        alert('Camera not detected. Please check connections and try again.');
-                    }
-                })
-                .catch(error => {
-                    statusElement.textContent = 'Status: Error';
-                    statusElement.className = 'status-indicator status-inactive';
-                    alert('Error checking camera status.');
-                });
+            if (webcam.srcObject && webcam.srcObject.active) {
+                alert('Camera is active.');
+            } else {
+                alert('Camera is inactive. Please check permissions and try again.');
+            }
         }
         
         // Force restart the connection
         function forceRestart() {
-            if (confirm("This will forcefully restart the camera connection. Continue?")) {
-                fetch('/video_feed')  // Accessing this endpoint will force reinitialization
-                    .then(() => {
-                        location.reload();
-                    })
-                    .catch(() => {
-                        location.reload();
-                    });
+            if (confirm("This will restart the webcam connection. Continue?")) {
+                location.reload();
             }
         }
-        
-        // Auto-reconnect if video feed disconnects
-        const video = document.getElementById('videoFeed');
-        video.onerror = function() {
-            setTimeout(function() {
-                video.src = "{{ url_for('video_feed') }}?" + new Date().getTime();
-                checkCameraStatus();
-            }, 1000);
-        };
     </script>
 </body>
 </html>
