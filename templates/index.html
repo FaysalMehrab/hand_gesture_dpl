@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hand Tracking with Flask</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a2a6c, #b21f1f, #1a2a6c);
+            margin: 0;
+            padding: 20px;
+            color: white;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .subtitle {
+            font-size: 1.2rem;
+            margin-bottom: 30px;
+            opacity: 0.9;
+        }
+        
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto 30px;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            min-height: 480px;
+            background: #000;
+        }
+        
+        #videoFeed {
+            width: 100%;
+            display: block;
+        }
+        
+        .status-container {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 10px;
+            z-index: 10;
+        }
+        
+        .status-indicator {
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            background: rgba(0, 0, 0, 0.6);
+        }
+        
+        .status-active {
+            color: #0f0;
+            border: 2px solid #0f0;
+        }
+        
+        .status-inactive {
+            color: #f00;
+            border: 2px solid #f00;
+        }
+        
+        .frame-counter {
+            padding: 6px 12px;
+            border-radius: 15px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid #555;
+            font-size: 0.9rem;
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 12px 25px;
+            border-radius: 50px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            min-width: 150px;
+        }
+        
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateY(-3px);
+        }
+        
+        .btn-red {
+            background: rgba(255, 50, 50, 0.2);
+            border-color: rgba(255, 100, 100, 0.5);
+        }
+        
+        .btn-green {
+            background: rgba(50, 255, 50, 0.2);
+            border-color: rgba(100, 255, 100, 0.5);
+        }
+        
+        .troubleshooting {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 30px auto;
+            max-width: 600px;
+            text-align: left;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .troubleshooting h3 {
+            margin-top: 0;
+            color: #ffcc00;
+        }
+        
+        .troubleshooting ul {
+            padding-left: 20px;
+        }
+        
+        .troubleshooting li {
+            margin-bottom: 10px;
+        }
+        
+        .debug-info {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .debug-card {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+            padding: 15px;
+            min-width: 200px;
+        }
+        
+        .debug-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+        
+        footer {
+            margin-top: 40px;
+            opacity: 0.7;
+            font-size: 0.9rem;
+        }
+
+        .gesture-guide {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-bottom: 10px;
+            font-size: 2.2rem;
+            user-select: none;
+        }
+        .gesture-item {
+            background: rgba(0,0,0,0.25);
+            border-radius: 12px;
+            padding: 6px 18px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            transition: background 0.2s;
+        }
+        .gesture-item:hover {
+            background: rgba(255,255,255,0.15);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Hand Gesture Recognition</h1>
+        <div class="subtitle">Real-time hand tracking using MediaPipe and Flask</div>
+        
+        <!-- Gesture Emoji Guide START -->
+        <div class="gesture-guide">
+            <span class="gesture-item" title="Thumbs Up">👍</span>
+            <span class="gesture-item" title="Pointing Up">☝️</span>
+            <span class="gesture-item" title="Open Palm">🖐️</span>
+            <span class="gesture-item" title="Closed Fist">✊</span>
+            <span class="gesture-item" title="Thumbs Up (Right)">👉</span>
+        </div>
+        <!-- Gesture Emoji Guide END -->
+
+        <div class="video-container">
+            <img id="videoFeed" src="{{ url_for('video_feed') }}">
+            <div class="status-container">
+                <div id="statusIndicator" class="status-indicator status-inactive">Camera: Loading...</div>
+                <div class="frame-counter">Frames: <span id="frameCounter">0</span></div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button class="btn" onclick="toggleFullscreen()">Fullscreen</button>
+            <button class="btn" onclick="location.reload()">Restart App</button>
+            <button class="btn btn-green" onclick="checkCamera()">Check Camera</button>
+            <button class="btn btn-red" onclick="forceRestart()">Force Restart</button>
+        </div>
+        
+        <div class="debug-info">
+            <div class="debug-card">
+                <div>Camera Status</div>
+                <div id="debugStatus" class="debug-value">Checking...</div>
+            </div>
+            <div class="debug-card">
+                <div>Frames Processed</div>
+                <div id="debugFrames" class="debug-value">0</div>
+            </div>
+            <div class="debug-card">
+                <div>Last Frame</div>
+                <div id="debugLastFrame" class="debug-value">--</div>
+            </div>
+        </div>
+        
+        <footer>
+            Hand Tracking System | Built with Flask and MediaPipe | Frame: <span id="currentFrame">0</span>
+        </footer>
+    </div>
+
+    <script>
+        const statusElement = document.getElementById('statusIndicator');
+        const frameCounterElement = document.getElementById('frameCounter');
+        const debugStatus = document.getElementById('debugStatus');
+        const debugFrames = document.getElementById('debugFrames');
+        const debugLastFrame = document.getElementById('debugLastFrame');
+        const currentFrameElement = document.getElementById('currentFrame');
+        
+        let frameCount = 0;
+        
+        // Update frame counter
+        document.getElementById('videoFeed').onload = function() {
+            frameCount++;
+            currentFrameElement.textContent = frameCount;
+        };
+        
+        // Check camera status periodically
+        function checkCameraStatus() {
+            fetch('/camera_status')
+                .then(response => response.json())
+                .then(data => {
+                    const isActive = data.status === 'active';
+                    
+                    if (isActive) {
+                        statusElement.textContent = 'Camera: Active';
+                        statusElement.className = 'status-indicator status-active';
+                        debugStatus.textContent = 'Active';
+                        debugStatus.style.color = '#0f0';
+                    } else {
+                        statusElement.textContent = 'Camera: Inactive';
+                        statusElement.className = 'status-indicator status-inactive';
+                        debugStatus.textContent = 'Inactive';
+                        debugStatus.style.color = '#f00';
+                    }
+                    
+                    frameCounterElement.textContent = data.frame_counter || 0;
+                    debugFrames.textContent = data.frame_counter || 0;
+                    
+                    if (data.last_frame_time) {
+                        const lastFrameTime = new Date(data.last_frame_time * 1000);
+                        const now = new Date();
+                        const secondsAgo = Math.floor((now - lastFrameTime) / 1000);
+                        debugLastFrame.textContent = `${secondsAgo} seconds ago`;
+                        debugLastFrame.style.color = secondsAgo > 2 ? '#ff5555' : '#55ff55';
+                    }
+                })
+                .catch(error => {
+                    statusElement.textContent = 'Status: Error';
+                    statusElement.className = 'status-indicator status-inactive';
+                    debugStatus.textContent = 'Error';
+                    debugStatus.style.color = '#f00';
+                });
+        }
+        
+        // Initial check
+        checkCameraStatus();
+        
+        // Check every 2 seconds
+        setInterval(checkCameraStatus, 2000);
+        
+        // Toggle fullscreen mode
+        function toggleFullscreen() {
+            const elem = document.getElementById('videoFeed');
+            
+            if (!document.fullscreenElement) {
+                if (elem.requestFullscreen) {
+                    elem.requestFullscreen();
+                } else if (elem.webkitRequestFullscreen) {
+                    elem.webkitRequestFullscreen();
+                } else if (elem.msRequestFullscreen) {
+                    elem.msRequestFullscreen();
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) {
+                    document.msExitFullscreen();
+                }
+            }
+        }
+        
+        // Manually check camera connection
+        function checkCamera() {
+            statusElement.textContent = 'Checking camera...';
+            fetch('/camera_status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'active') {
+                        statusElement.textContent = 'Camera: Active';
+                        statusElement.className = 'status-indicator status-active';
+                        // Refresh video feed
+                        document.getElementById('videoFeed').src = "{{ url_for('video_feed') }}?" + new Date().getTime();
+                    } else {
+                        statusElement.textContent = 'Camera: Inactive';
+                        statusElement.className = 'status-indicator status-inactive';
+                        alert('Camera not detected. Please check connections and try again.');
+                    }
+                })
+                .catch(error => {
+                    statusElement.textContent = 'Status: Error';
+                    statusElement.className = 'status-indicator status-inactive';
+                    alert('Error checking camera status.');
+                });
+        }
+        
+        // Force restart the connection
+        function forceRestart() {
+            if (confirm("This will forcefully restart the camera connection. Continue?")) {
+                fetch('/video_feed')  // Accessing this endpoint will force reinitialization
+                    .then(() => {
+                        location.reload();
+                    })
+                    .catch(() => {
+                        location.reload();
+                    });
+            }
+        }
+        
+        // Auto-reconnect if video feed disconnects
+        const video = document.getElementById('videoFeed');
+        video.onerror = function() {
+            setTimeout(function() {
+                video.src = "{{ url_for('video_feed') }}?" + new Date().getTime();
+                checkCameraStatus();
+            }, 1000);
+        };
+    </script>
+</body>
+</html>
